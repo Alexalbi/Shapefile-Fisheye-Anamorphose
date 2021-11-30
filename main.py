@@ -9,6 +9,9 @@ import matplotlib.pyplot as plt
 global x, y
 x, y = 0, 1
 
+# test file location
+testpath = "tests/"
+testfilename = "grid.shp"
 
 def switchList(list):
     # switches the formatting of a list of points
@@ -17,14 +20,14 @@ def switchList(list):
     return xList, yList
 
 
-def plotShapes(shapes, points = True):
+def plotShapes(shapes, points=True):
     # plots a single shape
     for shape in shapes:
         if points:
             list = switchList(shape.points)
         else:
             list = switchList(shape)
-        plt.plot(list[0], list[1])
+        plt.plot(list[0], list[1], 'black')
     plt.show()
 
 
@@ -101,21 +104,23 @@ def transformShape(origin, maxDistance, points, function):
     return newPoints
 
 
-def computeTransform(origin, boundBox, function, maxDistance, shapeFileR, shapeFileW):
-    # computes max bound distance depending on the method
-    if type(maxDistance) != float:
-        distXp = abs(boundBox[1][x] - origin[x])
-        distXn = abs(boundBox[0][x] - origin[x])
-        distYp = abs(boundBox[1][y] - origin[y])
-        distYn = abs(boundBox[0][y] - origin[y])
-        if maxDistance == "bounds":
-            maxDistance = [distXp, distXn, distYp, distYn]
-        elif maxDistance == "min":
-            maxDistance = min([distXn, distXp, distYn, distYp])
+def computeTransform(origin, function, maxDistance, shapeFileR, shapeFileW):
+    if (type(maxDistance) == list):
+        if type(origin[0] == list):
+            assert len(maxDistance) == len(origin)
+        else:
+            assert len(maxDistance) == 4
+            origin = [origin]
+    else:
+        if type(origin[0] != list):
+            maxDistance = [maxDistance]
+            origin = [origin]
 
     for shapeRec in shapeFileR.iterShapeRecords():
         # computes the transform of the shape
-        newShape = transformShape(origin, maxDistance, shapeRec.shape.points, function)
+        newShape = shapeRec.shape.points
+        for i in range(len(origin)):
+            newShape = transformShape(origin[i], maxDistance[i], newShape, function)
 
         # copies the shape's record
         shapeFileW.record(*shapeRec.record)
@@ -149,10 +154,21 @@ def computeTransform(origin, boundBox, function, maxDistance, shapeFileR, shapeF
             shapeFileW.multipatch([newShape])
 
 
-def editShapefiles(origin, filenames, inpath, outpath, transform, maxDistance):
+def computeFisheye(origin, filenames, inpath, outpath, transform, maxDistance, display=False):
+    if display:
+        fig, ax1 = plt.subplots()
+
+        fstring = str(inspect.getsourcelines(transform)[0])
+        fstring = fstring.strip("['\\n']").split(" = ")[1].split(" : ")[1]
+        plt.title("f(x) = " + str(fstring) + " | zoom from " + str(transformOrigin) + " to " + str(transformBound))
+
+        transform = changeTransformScale(transform, transformOrigin, transformBound)
+        plotTransform(transform, ax1)
+        fig.tight_layout()
+        plt.show()
+
     inPaths = [inpath + filename for filename in filenames]
     outPaths = [outpath + filename for filename in filenames]
-    boundBox = []
 
     for i in range(len(inPaths)):
         # create shapefile reader
@@ -164,51 +180,46 @@ def editShapefiles(origin, filenames, inpath, outpath, transform, maxDistance):
         # copy the existing fields
         shapeFileW.fields = shapeFileR.fields[1:]
 
-        if i == 0:
-            # gets the bounding box of the first shapefile and format it to a two points list
-            boundBox = shapeFileR.bbox
-            boundBox = [[boundBox[0], boundBox[1]], [boundBox[2], boundBox[3]]]
-
         # compute shapes transform
-        computeTransform(origin, boundBox, transform, maxDistance, shapeFileR, shapeFileW)
+        computeTransform(origin, transform, maxDistance, shapeFileR, shapeFileW)
 
         # save the new shapefile
         shapeFileW.close()
 
 
+def displayShapefile(filename):
+    shapeFileR = shapefile.Reader(filename)
+    shapes = shapeFileR.shapes()
+    plotShapes(shapes)
+
+
+def testFisheye(origin, transform, maxDistance):
+    computeFisheye(origin, [testfilename], testpath, testpath+"transformed_", transform, maxDistance, True)
+    displayShapefile(testpath+"transformed_"+testfilename)
+
 # center coordinates of the "fisheye" transform
-origin = [842440, 6519200]
+origin = [[842440, 6519200], [844710, 6517720]]
 
 # transform function, assumes it is defined and monotonously decreasing on [0; 1]
 # note: x*transform(x) should also be monotonous on [0; 1]
-transform = lambda x : -log(0.2*x+0.1)
+transform = lambda x: -log(0.2*x+0.1)
 
 # transform factors/zoom at origin and bound
 transformOrigin = 1.5
 transformBound = 1
 
+# radius of the fisheye effect
+maxDistance = [2500.0, 1200]
+
 # shapefile path - .shp/.dbf/... library does not care about file extensions
 #path = "base_shapes_Lyon/"
 #filenames = ["bati_aroundLyon.shp", "bridges.shp", "cimetiere_aroundLyon.shp", "hydro_Lyon.shp", "metro_lines.shp",
 #             "metro_stations.shp", "parcs_aroundLyon.shp", "places_aroundLyon.shp", "railway_lines_aroundLyon.shp", "streets_name.shp",
- #           "terrain_sport_aroundLyon.shp", "tram_lines.shp", "tram_stations.shp", "veget_aroundLyon.shp"]
+#           "terrain_sport_aroundLyon.shp", "tram_lines.shp", "tram_stations.shp", "veget_aroundLyon.shp"]
 
-path = "test/"
-filenames = ["grid.shp"]
 
-fig, ax1 = plt.subplots()
-
-fstring = str(inspect.getsourcelines(transform)[0])
-fstring = fstring.strip("['\\n']").split(" = ")[1].split(" : ")[1]
-plt.title("f(x) = " + str(fstring) + " | zoom from " + str(transformOrigin) + " to " + str(transformBound))
-
-transform = changeTransformScale(transform, transformOrigin, transformBound)
-plotTransform(transform, ax1)
-fig.tight_layout()
-plt.show()
-
-#editShapefiles(origin, filenames, path, path+"transformed_", transform, 2500.0)
-
+#computeFisheye(origin, filenames, path, path+"transformed_", transform, maxDistance)
+testFisheye(origin, transform, maxDistance)
 
 
 
