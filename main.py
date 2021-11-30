@@ -11,12 +11,14 @@ x, y = 0, 1
 
 
 def switchList(list):
+    # switches the formatting of a list of points
     xList, yList = [list[i][x] for i in range(len(list))], [list[i][y] for i in range(len(list))]
 
     return xList, yList
 
 
 def plotShapes(shapes, points = True):
+    # plots a single shape
     for shape in shapes:
         if points:
             list = switchList(shape.points)
@@ -27,6 +29,7 @@ def plotShapes(shapes, points = True):
 
 
 def changeTransformScale(function, newAtOrigin, newAtBound):
+    # scales a manotously decreasing function on [0, 1] to vary between newAtOrigin and newAtBound
     oldAtOrigin, oldAtBound = function(0), function(1)
     ratio = (newAtOrigin - newAtBound) / (oldAtOrigin - oldAtBound)
     return lambda x: (function(x) - oldAtBound) * ratio + newAtBound
@@ -44,10 +47,12 @@ def plotTransform(function, ax1, n=100):
 
 
 def getVector(pointA, pointB):
+    # returns the vector pointing from A to B
     return [(pointB[x] - pointA[x]), (pointB[y] - pointA[y])]
 
 
 def computeDistance(pointA, pointB, returnVector=False):
+    # returns the distance between A and B and the associated vector
     vector = getVector(pointA, pointB)
     distance = sqrt(vector[x] ** 2 + vector[y] ** 2)
     if returnVector:
@@ -62,8 +67,11 @@ def transformShape(origin, maxDistance, points, function):
     for point in points:
         # gets the current point distance to origin
         distance, vector = computeDistance(origin, point, True)
+
+        # if the transform is anisotropic
         if type(maxDistance)==list:
             normalized = [0, 0]
+            # normalizes distance depending on the 4 directions
             if vector[x] > 0:
                 normalized[x] = distance / maxDistance[0]
             else:
@@ -72,7 +80,9 @@ def transformShape(origin, maxDistance, points, function):
                 normalized[y] = distance / maxDistance[2]
             else:
                 normalized[y] = distance / maxDistance[3]
+            # computes the transform value for the point
             transform = [function(normalized[x]), function(normalized[y])]
+            # scales the vector
             vector = [transform[x] * vector[x], transform[y] * vector[y]]
         else:
             # normalizes distance
@@ -92,10 +102,7 @@ def transformShape(origin, maxDistance, points, function):
 
 
 def computeTransform(origin, boundBox, function, maxDistance, shapeFileR, shapeFileW):
-    # newShapes = []
-    shapeFileType = shapeFileR.shapeType
-
-    # computes max bound distance
+    # computes max bound distance depending on the method
     if type(maxDistance) != float:
         distXp = abs(boundBox[1][x] - origin[x])
         distXn = abs(boundBox[0][x] - origin[x])
@@ -107,10 +114,13 @@ def computeTransform(origin, boundBox, function, maxDistance, shapeFileR, shapeF
             maxDistance = min([distXn, distXp, distYn, distYp])
 
     for shapeRec in shapeFileR.iterShapeRecords():
+        # computes the transform of the shape
         newShape = transformShape(origin, maxDistance, shapeRec.shape.points, function)
 
+        # copies the shape's record
         shapeFileW.record(*shapeRec.record)
 
+        # uses a unique write method for every shape type described
         if shapeRec.shape.shapeType == shapefile.POINT:
             shapeFileW.point(newShape[0][x],newShape[0][y])
         elif shapeRec.shape.shapeType == shapefile.POLYLINE:
@@ -159,7 +169,6 @@ def editShapefiles(origin, filenames, inpath, outpath, transform, maxDistance):
             boundBox = shapeFileR.bbox
             boundBox = [[boundBox[0], boundBox[1]], [boundBox[2], boundBox[3]]]
 
-
         # compute shapes transform
         computeTransform(origin, boundBox, transform, maxDistance, shapeFileR, shapeFileW)
 
@@ -168,7 +177,6 @@ def editShapefiles(origin, filenames, inpath, outpath, transform, maxDistance):
 
 
 # center coordinates of the "fisheye" transform
-# X=45.75757 Y=4.83197
 origin = [842440, 6519200]
 
 # transform function, assumes it is defined and monotonously decreasing on [0; 1]
@@ -191,8 +199,8 @@ filenames = ["grid.shp"]
 fig, ax1 = plt.subplots()
 
 fstring = str(inspect.getsourcelines(transform)[0])
-fstring = fstring.strip("['\\n']").split(" = ")
-plt.title(str(fstring) + " zoom from " + str(transformOrigin) + " to " + str(transformBound))
+fstring = fstring.strip("['\\n']").split(" = ")[1].split(" : ")[1]
+plt.title("f(x) = " + str(fstring) + " | zoom from " + str(transformOrigin) + " to " + str(transformBound))
 
 transform = changeTransformScale(transform, transformOrigin, transformBound)
 plotTransform(transform, ax1)
