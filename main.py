@@ -222,4 +222,6 @@ maxDistance = [2500.0, 1200]
 testFisheye(origin, transform, maxDistance)
 
 
-
+# todo refactor for clarity
+# todo optimize for fisheye bound based chunks
+# todo cleanup method for use outside of file
