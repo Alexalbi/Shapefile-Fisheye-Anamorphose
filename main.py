@@ -13,6 +13,7 @@ x, y = 0, 1
 testpath = "tests/"
 testfilename = "grid.shp"
 
+
 def switchList(list):
     # switches the formatting of a list of points
     xList, yList = [list[i][x] for i in range(len(list))], [list[i][y] for i in range(len(list))]
@@ -23,11 +24,19 @@ def switchList(list):
 def plotShapes(shapes, points=True):
     # plots a single shape
     for shape in shapes:
+        parts = shape.parts
         if points:
             list = switchList(shape.points)
         else:
             list = switchList(shape)
-        plt.plot(list[0], list[1], 'black')
+        listX = list[0]
+        listY = list[1]
+        for i in range(len(parts)):
+            if i < len(parts) - 1:
+                plt.plot(listX[parts[i]:parts[i+1]], listY[parts[i]:parts[i+1]], 'black')
+            else:
+                plt.plot(listX[parts[i]:], listY[parts[i]:], 'black')
+
     plt.show()
 
 
@@ -66,7 +75,7 @@ def computeDistance(pointA, pointB, returnVector=False):
 
 def transformShape(origin, maxDistance, points, function):
     newPoints = []
-
+    minBbox, maxBbox = list(points[0]), list(points[0])
     for point in points:
         # gets the current point distance to origin
         distance, vector = computeDistance(origin, point, True)
@@ -99,9 +108,39 @@ def transformShape(origin, maxDistance, points, function):
 
         # computes the new point position
         newPoint = [origin[x] + vector[x], origin[y] + vector[y]]
+
+        if newPoint[x] < minBbox[x]: minBbox[x] = newPoint[x]
+        elif newPoint[y] < minBbox[y]: minBbox[y] = newPoint[y]
+        elif maxBbox[x] < newPoint[x]: maxBbox[x] = newPoint[x]
+        elif maxBbox[y] < newPoint[y]: maxBbox[y] = newPoint[y]
+
         newPoints.append(newPoint)
 
-    return newPoints
+    bbox = [minBbox[x], minBbox[y], maxBbox[x], maxBbox[y]]
+    return newPoints, bbox
+
+
+def getBBox(origin, radius):
+    return [origin[x] - radius, origin[y] - radius, origin[x] + radius, origin[y] + radius]
+
+
+def testBBoxOverlap(bbox1, bbox2):
+    xn1, xp1, yn1, yp1 = bbox1[0], bbox1[2], bbox1[1], bbox1[3]
+    xn2, xp2, yn2, yp2 = bbox2[0], bbox2[2], bbox2[1], bbox2[3]
+    if (xn1 >= xp2) or (xp1 <= xn2) or (yp1 <= yn2) or (yn1 >= yp2):
+        return False
+    else:
+        return True
+
+
+def splitParts(list, parts):
+    splitList = []
+    for i in range(len(parts)):
+        if i < len(parts) - 1:
+            splitList.append(list[parts[i]:parts[i+1]])
+        else:
+            splitList.append(list[parts[i]:])
+    return splitList
 
 
 def computeTransform(origin, function, maxDistance, shapeFileR, shapeFileW):
@@ -119,8 +158,15 @@ def computeTransform(origin, function, maxDistance, shapeFileR, shapeFileW):
     for shapeRec in shapeFileR.iterShapeRecords():
         # computes the transform of the shape
         newShape = shapeRec.shape.points
+        bbox = shapeRec.shape.bbox
         for i in range(len(origin)):
-            newShape = transformShape(origin[i], maxDistance[i], newShape, function)
+            transformBbox = getBBox(origin[i], maxDistance[i])
+            if testBBoxOverlap(transformBbox, bbox):
+                newShape, bbox = transformShape(origin[i], maxDistance[i], newShape, function)
+
+        # split the geometry parts if the geometry is not a point
+        if shapeRec.shape.shapeType != shapefile.POINT:
+            newShape = splitParts(newShape, shapeRec.shape.parts)
 
         # copies the shape's record
         shapeFileW.record(*shapeRec.record)
@@ -129,40 +175,39 @@ def computeTransform(origin, function, maxDistance, shapeFileR, shapeFileW):
         if shapeRec.shape.shapeType == shapefile.POINT:
             shapeFileW.point(newShape[0][x],newShape[0][y])
         elif shapeRec.shape.shapeType == shapefile.POLYLINE:
-            shapeFileW.line([newShape])
+            shapeFileW.line(newShape)
         elif shapeRec.shape.shapeType == shapefile.POLYGON:
-            shapeFileW.poly([newShape])
+            shapeFileW.poly(newShape)
         elif shapeRec.shape.shapeType == shapefile.MULTIPOINT:
-            shapeFileW.multipoint([newShape])
+            shapeFileW.multipoint(newShape)
         elif shapeRec.shape.shapeType == shapefile.POINTZ:
-            shapeFileW.pointz([newShape])
+            shapeFileW.pointz(newShape)
         elif shapeRec.shape.shapeType == shapefile.POLYLINEZ:
-            shapeFileW.linez([newShape])
+            shapeFileW.linez(newShape)
         elif shapeRec.shape.shapeType == shapefile.POLYGONZ:
-            shapeFileW.polyz([newShape])
+            shapeFileW.polyz(newShape)
         elif shapeRec.shape.shapeType == shapefile.MULTIPOINTZ:
-            shapeFileW.multipointz([newShape])
+            shapeFileW.multipointz(newShape)
         elif shapeRec.shape.shapeType == shapefile.POINTM:
-            shapeFileW.pointm([newShape])
+            shapeFileW.pointm(newShape)
         elif shapeRec.shape.shapeType == shapefile.POLYLINEM:
-            shapeFileW.linem([newShape])
+            shapeFileW.linem(newShape)
         elif shapeRec.shape.shapeType == shapefile.POLYGONM:
-            shapeFileW.polym([newShape])
+            shapeFileW.polym(newShape)
         elif shapeRec.shape.shapeType == shapefile.MULTIPOINTM:
-            shapeFileW.multipointm([newShape])
+            shapeFileW.multipointm(newShape)
         elif shapeRec.shape.shapeType == shapefile.MULTIPATCH:
-            shapeFileW.multipatch([newShape])
+            shapeFileW.multipatch(newShape)
 
 
-def computeFisheye(origin, filenames, inpath, outpath, transform, maxDistance, display=False):
+def computeFisheye(origin, filenames, inpath, outpath, transform, maxDistance, zoom, display=False):
+    fstring = str(inspect.getsourcelines(transform)[0])
+    fstring = fstring.strip("['\\n']").split(" = ")[1].split(":")[1]
+    transform = changeTransformScale(transform, zoom, 1)
+
     if display:
         fig, ax1 = plt.subplots()
-
-        fstring = str(inspect.getsourcelines(transform)[0])
-        fstring = fstring.strip("['\\n']").split(" = ")[1].split(" : ")[1]
-        plt.title("f(x) = " + str(fstring) + " | zoom from " + str(transformOrigin) + " to " + str(transformBound))
-
-        transform = changeTransformScale(transform, transformOrigin, transformBound)
+        plt.title("f(x) = " + str(fstring) + " | zoom from " + str(zoom) + " to 1")
         plotTransform(transform, ax1)
         fig.tight_layout()
         plt.show()
@@ -193,8 +238,8 @@ def displayShapefile(filename):
     plotShapes(shapes)
 
 
-def testFisheye(origin, transform, maxDistance):
-    computeFisheye(origin, [testfilename], testpath, testpath+"transformed_", transform, maxDistance, True)
+def testFisheye(origin, transform, maxDistance, zoom):
+    computeFisheye(origin, [testfilename], testpath, testpath+"transformed_", transform, maxDistance, zoom, True)
     displayShapefile(testpath+"transformed_"+testfilename)
 
 # center coordinates of the "fisheye" transform
@@ -204,9 +249,8 @@ origin = [[842440, 6519200], [844710, 6517720]]
 # note: x*transform(x) should also be monotonous on [0; 1]
 transform = lambda x: -log(0.2*x+0.1)
 
-# transform factors/zoom at origin and bound
+# transform factors/zoom at origin
 transformOrigin = 1.5
-transformBound = 1
 
 # radius of the fisheye effect
 maxDistance = [2500.0, 1200]
@@ -218,9 +262,8 @@ maxDistance = [2500.0, 1200]
 #           "terrain_sport_aroundLyon.shp", "tram_lines.shp", "tram_stations.shp", "veget_aroundLyon.shp"]
 
 
-#computeFisheye(origin, filenames, path, path+"transformed_", transform, maxDistance)
-testFisheye(origin, transform, maxDistance)
-
+#computeFisheye(origin, filenames, path, path+"transformed_", transform, maxDistance, transformOrigin)
+# testFisheye(origin, transform, maxDistance, transformOrigin)
 
 # todo refactor for clarity
 # todo optimize for fisheye bound based chunks
